@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Pocket Pups</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="wrap">
+  <div id="ds">
+    <div class="screen" id="topscreen">
+      <canvas id="top" width="512" height="384"></canvas>
+    </div>
+    <div class="hinge"><span class="led"></span></div>
+    <div class="screen" id="botscreen">
+      <canvas id="bot" width="512" height="384"></canvas>
+
+      <div id="cmdbar" style="display:none">
+        <input id="cmd" type="text" placeholder="Say a command or your puppy's name…" autocomplete="off" maxlength="30">
+        <button id="speak" class="mic" title="Speak (voice)">🎤</button>
+        <button id="send">Say</button>
+      </div>
+
+      <div id="menubar" style="display:none">
+        <button data-m="supplies"><span class="i">🍖</span>Supplies</button>
+        <button data-m="care"><span class="i">🛁</span>Care</button>
+        <button data-m="out"><span class="i">🚪</span>Go Out</button>
+        <button data-m="info"><span class="i">📋</span>Info</button>
+        <button data-m="dogs"><span class="i">🐶</span>Dogs</button>
+        <button data-m="system"><span class="i">⚙️</span>System</button>
+      </div>
+
+      <div id="panel" class="panel" style="display:none"></div>
+      <div id="teach" style="display:none"></div>
+      <div id="kennel" style="display:none"></div>
+
+      <div id="title">
+        <div class="logo"><span class="paw">🐾</span><h1>Pocket Pups</h1><p>a puppy companion game</p></div>
+        <button id="startBtn">Start</button>
+        <p class="hint">Mouse or touch. Headphones recommended. Voice commands work in Chrome / Edge.</p>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="js/breeds.js"></script>
+<script src="js/dogdraw.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/game.js"></script>
+<script src="js/activities.js"></script>
+<script>
+// Fit the DS shell to the window
+(function fit() {
+  const ds = document.getElementById('ds');
+  function resize() {
+    const landscape = window.innerWidth > window.innerHeight * 1.15;
+    document.body.classList.toggle('landscape', landscape);
+    const w = landscape ? 1080 : 560, h = landscape ? 560 : 1000;
+    const s = Math.min((window.innerWidth - 16) / w, (window.innerHeight - 16) / h, 1.25);
+    ds.style.transform = `scale(${s})`;
+    document.getElementById('wrap').style.height = (h * s + 16) + 'px';
+  }
+  window.addEventListener('resize', resize); resize();
+})();
+</script>
+</body>
+</html>
