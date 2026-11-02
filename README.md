@@ -4,7 +4,9 @@ A Nintendogs-style puppy companion game that runs entirely in the browser. No bu
 
 ## Play
 
-Open `index.html` in Chrome or Edge (double-click it). Everything saves automatically to the browser's local storage.
+**Play online:** https://iamsammy-ak.github.io/pocket-pups/
+
+Or open `index.html` in Chrome or Edge (double-click it). Everything saves automatically to the browser's local storage.
 
 Voice commands use the browser's speech recognition. If the microphone is blocked or unsupported, type commands in the command bar instead; both work the same.
 
