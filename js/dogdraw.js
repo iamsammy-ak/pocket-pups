@@ -47,11 +47,13 @@ function drawDog(ctx, dog, o) {
 
   ctx.save();
   ctx.translate(o.x, o.y);
-  // shadow
+  // soft contact shadow
   const shW = (pose === 'lie' || pose === 'roll') ? L * 0.75 : L * 0.6;
   ctx.save(); ctx.scale(scale, scale);
-  ctx.globalAlpha = 0.18;
-  fillEllipse(ctx, 0, 2, shW, 7, '#000');
+  const shJump = (o.jumpY || 0) / scale;
+  const sg = ctx.createRadialGradient(0, 2, 1, 0, 2, shW);
+  sg.addColorStop(0, `rgba(30,20,10,${0.28 / (1 + shJump / 30)})`); sg.addColorStop(0.7, `rgba(30,20,10,${0.16 / (1 + shJump / 30)})`); sg.addColorStop(1, 'rgba(30,20,10,0)');
+  ctx.save(); ctx.scale(1, 7 / shW); ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(0, 2 * shW / 7, shW * (1 + shJump / 60), 0, Math.PI * 2); ctx.fill(); ctx.restore();
   ctx.restore();
 
   let sx = facing;
@@ -234,10 +236,30 @@ function drawDog(ctx, dog, o) {
     fillEllipse(ctx, bodyLen / 2 - 2, H * 0.1, 9, H * 0.4, furSec);
     ctx.restore();
   }
+  if (has('patch')) { // rump patch
+    ctx.save(); ctx.translate(bodyCX, bodyCY); ctx.rotate(bodyAng);
+    fillEllipse(ctx, -bodyLen * 0.3, -H * 0.2, bodyLen * 0.22, H * 0.42, furSec);
+    ctx.restore();
+  }
+  if (has('spots')) {
+    ctx.save(); ctx.translate(bodyCX, bodyCY); ctx.rotate(bodyAng);
+    const sp = [[-0.38, -0.25, 4.5], [0.05, -0.4, 3.5], [0.36, 0.0, 4], [-0.12, 0.2, 3], [-0.45, 0.3, 3.2], [0.28, -0.45, 2.8], [0.5, 0.35, 3], [-0.2, -0.05, 2.4], [0.15, 0.4, 2.6]];
+    for (const [px, py, r] of sp) fillEllipse(ctx, px * bodyLen, py * H, r, r * 0.85, furSec);
+    ctx.restore();
+  }
   // fluffy shading
   if (b.fluffy) {
     ctx.save(); ctx.translate(bodyCX, bodyCY); ctx.rotate(bodyAng);
     for (let i = -3; i <= 3; i++) fillEllipse(ctx, i * bodyLen / 7, H * 0.45, 7, 6, shade(base, 10));
+    for (let i = -2; i <= 2; i++) fillEllipse(ctx, i * bodyLen / 5 + 3, -H * 0.42, 6, 4, shade(base, 14));
+    ctx.restore();
+  }
+  // form shading: highlight along the back, shade under the belly
+  {
+    ctx.save(); ctx.translate(bodyCX, bodyCY); ctx.rotate(bodyAng);
+    const hl = ctx.createLinearGradient(0, -H * 0.6, 0, H * 0.6);
+    hl.addColorStop(0, 'rgba(255,255,255,0.22)'); hl.addColorStop(0.35, 'rgba(255,255,255,0.04)'); hl.addColorStop(0.7, 'rgba(60,30,10,0.05)'); hl.addColorStop(1, 'rgba(60,30,10,0.22)');
+    ctx.fillStyle = hl; ctx.fillRect(-bodyLen, -H, bodyLen * 2, H * 2);
     ctx.restore();
   }
   // suds
@@ -250,8 +272,8 @@ function drawDog(ctx, dog, o) {
     ctx.globalAlpha = 1;
   }
   ctx.restore();
-  // body outline subtle
-  bodyPath(); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.stroke();
+  // body outline
+  bodyPath(); ctx.lineWidth = 1.6; ctx.strokeStyle = 'rgba(40,20,10,0.2)'; ctx.stroke();
 
   // near haunch and legs
   if (haunch) drawHaunch(true);
@@ -268,7 +290,7 @@ function drawDog(ctx, dog, o) {
   if (turn) ctx.rotate(turn);
 
   const headPath = () => { ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); };
-  const earCol = has('pugmask') ? (col.sec) : furColor;
+  const earCol = (has('pugmask') || has('spots') || has('patch')) ? furSec : furColor;
   const innerEar = '#f3b0b0';
 
   // ears (behind head)
@@ -280,7 +302,10 @@ function drawDog(ctx, dog, o) {
       case 'floppy': case 'long': {
         const len = b.ears === 'long' ? R * 1.5 : R * 1.25;
         ctx.rotate(side < 0 ? 0.55 : -0.5);
-        fillEllipse(ctx, 0, len * 0.5, R * 0.42, len * 0.55, has('tri') ? ter : earCol);
+        const ec = has('tri') ? ter : earCol;
+        fillEllipse(ctx, 0, len * 0.5, R * 0.42, len * 0.55, ec);
+        if (side > 0) fillEllipse(ctx, R * 0.04, len * 0.56, R * 0.2, len * 0.36, 'rgba(243,176,176,0.5)');
+        ellipsePath(ctx, 0, len * 0.5, R * 0.42, len * 0.55); ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(40,20,10,0.18)'; ctx.stroke();
         break;
       }
       case 'pointy': {
@@ -321,8 +346,20 @@ function drawDog(ctx, dog, o) {
   }
   if (has('tri')) { fillEllipse(ctx, -R * 0.55, -R * 0.1, R * 0.55, R * 0.8, ter); }
   if (has('saddle')) { fillEllipse(ctx, R * 0.6, R * 0.35, R * 0.6, R * 0.5, furSec); }
+  if (has('patch')) { fillEllipse(ctx, R * 0.42, -R * 0.3, R * 0.48, R * 0.55, furSec); fillEllipse(ctx, -R * 0.55, -R * 0.2, R * 0.4, R * 0.5, furSec); }
+  if (has('spots')) { for (const [px, py, r] of [[-0.45, -0.3, 0.22], [0.1, -0.6, 0.18], [-0.1, 0.55, 0.16], [0.55, 0.65, 0.14]]) fillEllipse(ctx, px * R, py * R, r * R, r * R * 0.9, furSec); }
   if (b.fluffy && b.ears === 'pom') { fillEllipse(ctx, -R * 0.1, -R * 0.75, R * 0.8, R * 0.5, shade(base, 8)); }
+  // head form shading
+  {
+    const hg = ctx.createRadialGradient(-R * 0.3, -R * 0.4, R * 0.1, 0, 0, R * 1.1);
+    hg.addColorStop(0, 'rgba(255,255,255,0.2)'); hg.addColorStop(0.55, 'rgba(255,255,255,0)'); hg.addColorStop(1, 'rgba(60,30,10,0.2)');
+    ctx.fillStyle = hg; ctx.fillRect(-R, -R, R * 2, R * 2);
+  }
   ctx.restore();
+  headPath(); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(40,20,10,0.2)'; ctx.stroke();
+  if (b.fluffy && b.ears !== 'pom') { // cheek fluff
+    fillEllipse(ctx, -R * 0.1, R * 0.75, R * 0.55, R * 0.3, shade(base, 10)); fillEllipse(ctx, R * 0.35, R * 0.8, R * 0.45, R * 0.28, shade(base, 10));
+  }
   if (b.ears === 'pom') fillEllipse(ctx, -R * 0.05, -R * 0.9, R * 0.7, R * 0.45, shade(base, 8)); // top knot
 
   // snout
@@ -369,6 +406,7 @@ function drawDog(ctx, dog, o) {
     }
   }
   if (has('pugmask')) { fillEllipse(ctx, snX - R * 0.1, snY - R * 0.1, snRx * 0.9, snRy * 1.2, 'rgba(40,30,30,0.18)'); }
+  if (eyes === 'happy') { fillEllipse(ctx, -R * 0.35, R * 0.15, R * 0.22, R * 0.12, 'rgba(255,120,140,0.35)'); fillEllipse(ctx, R * 0.62, R * 0.1, R * 0.2, R * 0.11, 'rgba(255,120,140,0.35)'); }
 
   // head accessories
   const acc = o.acc || {};

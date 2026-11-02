@@ -2,33 +2,62 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
 <title>Pocket Pups</title>
+<meta name="description" content="A Nintendogs-style puppy companion game that runs in your browser. Adopt, pet, teach tricks by gesture and voice, walk, bathe and compete.">
+<meta name="theme-color" content="#f6ead6">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Pocket Pups">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="wrap">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-bone" viewBox="0 0 24 24"><path d="M7 5.5a2.5 2.5 0 0 1 4.3 1.7l1.5-1.5a2.5 2.5 0 1 1 4.3 1.8 2.5 2.5 0 1 1-1.8 4.3L13.8 13.3l1.5 1.5a2.5 2.5 0 1 1-1.8 4.3 2.5 2.5 0 1 1-4.3-1.8l-1.5-1.5-1.5 1.5a2.5 2.5 0 1 1-4.3-1.8 2.5 2.5 0 1 1 1.8-4.3L5.2 9.7A2.5 2.5 0 0 1 7 5.5z"/></symbol>
+    <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.5c3.6 4.6 6.5 8.3 6.5 12a6.5 6.5 0 0 1-13 0c0-3.7 2.9-7.4 6.5-12z"/><path d="M9.2 15.4a3 3 0 0 0 2.3 2.6" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".9"/></symbol>
+    <symbol id="i-paw" viewBox="0 0 24 24"><circle cx="6.2" cy="9.5" r="2.1"/><circle cx="10" cy="5.5" r="2.2"/><circle cx="14.6" cy="5.5" r="2.2"/><circle cx="18.3" cy="9.5" r="2.1"/><path d="M12.3 10.2c3 0 5.6 2.6 6 5.4.3 2.1-1.3 3.6-3.1 3.2-1.1-.2-1.9-.8-2.9-.8s-1.8.6-2.9.8c-1.8.4-3.4-1.1-3.1-3.2.4-2.8 3-5.4 6-5.4z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M8 9h8M8 12.5h8M8 16h5" stroke="#fff" stroke-width="1.7" stroke-linecap="round" fill="none"/></symbol>
+    <symbol id="i-dog" viewBox="0 0 24 24"><path d="M5.5 6.5c-2.3 0-3.3 2.4-2.6 4.6l1.6 3.4c-.3 3.5 2.8 6 7.5 6s7.8-2.5 7.5-6l1.6-3.4c.7-2.2-.3-4.6-2.6-4.6-1.5 0-2.4.9-3.2 1.9-1-.6-2.1-.9-3.3-.9s-2.3.3-3.3.9C7.9 7.4 7 6.5 5.5 6.5z"/><circle cx="9.3" cy="12.3" r="1.1" fill="#fff"/><circle cx="14.7" cy="12.3" r="1.1" fill="#fff"/><path d="M12 14.4c-1 0-1.6.5-1.6 1 0 .6.7 1 1.6 1s1.6-.4 1.6-1c0-.5-.6-1-1.6-1z" fill="#fff"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><path d="M10.3 2.5h3.4l.5 2.6c.6.2 1.2.6 1.7 1l2.5-.9 1.7 2.9-2 1.7c.1.6.1 1.3 0 1.9l2 1.7-1.7 2.9-2.5-.9c-.5.4-1.1.8-1.7 1l-.5 2.6h-3.4l-.5-2.6c-.6-.2-1.2-.6-1.7-1l-2.5.9-1.7-2.9 2-1.7a6.6 6.6 0 0 1 0-1.9l-2-1.7 1.7-2.9 2.5.9c.5-.4 1.1-.8 1.7-1l.5-2.6z"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v3.5M9 20.5h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5h3l1.4-2.2c.3-.5.8-.8 1.4-.8h4.4c.6 0 1.1.3 1.4.8L17 8.5h3a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18v-8A1.5 1.5 0 0 1 4 8.5z"/><circle cx="12" cy="13.5" r="3.2" fill="#fff"/></symbol>
+  </defs>
+</svg>
+
+<div id="app">
   <div id="ds">
-    <div class="screen" id="topscreen">
-      <canvas id="top" width="512" height="384"></canvas>
-    </div>
-    <div class="hinge"><span class="led"></span></div>
-    <div class="screen" id="botscreen">
-      <canvas id="bot" width="512" height="384"></canvas>
+    <section class="screen" id="topscreen">
+      <canvas id="top" width="512" height="384" aria-label="Information screen"></canvas>
+    </section>
+    <div class="hinge" aria-hidden="true"><span class="led"></span></div>
+    <div id="botwrap">
+      <section class="screen" id="botscreen">
+        <canvas id="bot" width="512" height="384" aria-label="Touch screen"></canvas>
+        <button id="snap" class="snap" title="Take a photo" aria-label="Take a photo" style="display:none"><svg><use href="#i-camera"/></svg></button>
+      </section>
 
-      <div id="cmdbar" style="display:none">
-        <input id="cmd" type="text" placeholder="Say a command or your puppy's name…" autocomplete="off" maxlength="30">
-        <button id="speak" class="mic" title="Speak (voice)">🎤</button>
-        <button id="send">Say</button>
-      </div>
-
-      <div id="menubar" style="display:none">
-        <button data-m="supplies"><span class="i">🍖</span>Supplies</button>
-        <button data-m="care"><span class="i">🛁</span>Care</button>
-        <button data-m="out"><span class="i">🚪</span>Go Out</button>
-        <button data-m="info"><span class="i">📋</span>Info</button>
-        <button data-m="dogs"><span class="i">🐶</span>Dogs</button>
-        <button data-m="system"><span class="i">⚙️</span>System</button>
+      <div id="controls">
+        <div id="cmdbar" style="display:none">
+          <input id="cmd" type="text" placeholder="Say a command or a puppy's name" autocomplete="off" autocapitalize="off" maxlength="30" aria-label="Command">
+          <button id="speak" class="mic" title="Speak" aria-label="Speak a command"><svg><use href="#i-mic"/></svg></button>
+          <button id="send" class="primary">Say</button>
+        </div>
+        <nav id="menubar" style="display:none" aria-label="Main menu">
+          <button data-m="supplies"><svg><use href="#i-bone"/></svg><span>Supplies</span></button>
+          <button data-m="care"><svg><use href="#i-drop"/></svg><span>Care</span></button>
+          <button data-m="out"><svg><use href="#i-paw"/></svg><span>Go out</span></button>
+          <button data-m="info"><svg><use href="#i-list"/></svg><span>Info</span></button>
+          <button data-m="dogs"><svg><use href="#i-dog"/></svg><span>Puppies</span></button>
+          <button data-m="system"><svg><use href="#i-gear"/></svg><span>System</span></button>
+        </nav>
       </div>
 
       <div id="panel" class="panel" style="display:none"></div>
@@ -36,32 +65,25 @@
       <div id="kennel" style="display:none"></div>
 
       <div id="title">
-        <div class="logo"><span class="paw">🐾</span><h1>Pocket Pups</h1><p>a puppy companion game</p></div>
-        <button id="startBtn">Start</button>
-        <p class="hint">Mouse or touch. Headphones recommended. Voice commands work in Chrome / Edge.</p>
+        <canvas id="titleArt" width="512" height="192"></canvas>
+        <div class="tbox">
+          <h1>Pocket Pups</h1>
+          <p class="tag">Your puppy is waiting</p>
+          <div class="trow"><button id="startBtn" class="primary big">Start</button><button id="newBtn" class="ghost" style="display:none">New game</button></div>
+          <p class="hint">Touch or mouse. Sound on for barks. Voice commands work in Chrome, Edge and Safari.</p>
+        </div>
       </div>
     </div>
   </div>
 </div>
+
 <script src="js/breeds.js"></script>
 <script src="js/dogdraw.js"></script>
 <script src="js/audio.js"></script>
+<script src="js/icons.js"></script>
 <script src="js/game.js"></script>
 <script src="js/activities.js"></script>
-<script>
-// Fit the DS shell to the window
-(function fit() {
-  const ds = document.getElementById('ds');
-  function resize() {
-    const landscape = window.innerWidth > window.innerHeight * 1.15;
-    document.body.classList.toggle('landscape', landscape);
-    const w = landscape ? 1080 : 560, h = landscape ? 560 : 1000;
-    const s = Math.min((window.innerWidth - 16) / w, (window.innerHeight - 16) / h, 1.25);
-    ds.style.transform = `scale(${s})`;
-    document.getElementById('wrap').style.height = (h * s + 16) + 'px';
-  }
-  window.addEventListener('resize', resize); resize();
-})();
-</script>
+<script src="js/walkmap.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>

@@ -1,25 +1,25 @@
 // ================= Activities: Walk, Bath, Disc, Agility, Obedience =================
 
-function font(ctx, size, bold) { ctx.font = `${bold ? 'bold ' : ''}${size}px "Trebuchet MS", sans-serif`; }
+function font(ctx, size, bold) { ctx.font = `${bold ? '700 ' : '500 '}${size}px ${FONT}`; }
 function outlinedText(ctx, text, x, y, size, color = '#fff', align = 'center', bold = true) {
   font(ctx, size, bold); ctx.textAlign = align; ctx.lineWidth = Math.max(3, size / 5); ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineJoin = 'round';
   ctx.strokeText(text, x, y); ctx.fillStyle = color; ctx.fillText(text, x, y);
 }
 function topPanelBG(ctx, title) {
-  const g = ctx.createLinearGradient(0, 0, 0, HH); g.addColorStop(0, '#fff6e3'); g.addColorStop(1, '#ffe8c2');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, HH);
-  ctx.fillStyle = '#5a4634'; font(ctx, 20, true); ctx.textAlign = 'left'; ctx.fillText(title, 18, 30);
-  ctx.textAlign = 'right'; ctx.fillStyle = '#2a7a3a'; ctx.fillText(fmtMoney(G.save.money), W - 18, 30);
+  hudBackground(ctx, 'day');
+  ctx.fillStyle = '#3b2e25'; font(ctx, 20, true); ctx.textAlign = 'left'; ctx.fillText(title, 18, 30);
+  ctx.textAlign = 'right'; ctx.fillStyle = '#f28c28'; ctx.fillText(fmtMoney(G.save.money), W - 18, 30);
 }
-function drawSkyGround(ctx, scroll, tod, horizonY = 250) {
+function drawSkyGround(ctx, scroll, tod, horizonY = 250, rain = false) {
   tod = tod || timeOfDay();
   const sky = ctx.createLinearGradient(0, 0, 0, horizonY);
-  if (tod === 'night') { sky.addColorStop(0, '#0d1240'); sky.addColorStop(1, '#3a4580'); }
+  if (rain && tod !== 'night') { sky.addColorStop(0, '#6f7f96'); sky.addColorStop(1, '#b4bfcc'); }
+  else if (tod === 'night') { sky.addColorStop(0, '#0d1240'); sky.addColorStop(1, '#3a4580'); }
   else if (tod === 'dusk') { sky.addColorStop(0, '#5a63b8'); sky.addColorStop(1, '#ffb27a'); }
   else { sky.addColorStop(0, '#5fb0f0'); sky.addColorStop(1, '#d6efff'); }
   ctx.fillStyle = sky; ctx.fillRect(0, 0, W, horizonY);
   // clouds
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillStyle = rain ? 'rgba(90,100,120,0.55)' : 'rgba(255,255,255,0.85)';
   for (let i = 0; i < 5; i++) { const cx = ((i * 170 - scroll * 0.1) % (W + 200) + W + 200) % (W + 200) - 100, cy = 40 + (i % 3) * 30; ctx.beginPath(); ctx.arc(cx, cy, 16, 0, Math.PI * 2); ctx.arc(cx + 18, cy - 8, 20, 0, Math.PI * 2); ctx.arc(cx + 40, cy, 15, 0, Math.PI * 2); ctx.fill(); }
   // hills
   ctx.fillStyle = tod === 'night' ? '#223055' : '#7fbf6a';
@@ -34,26 +34,49 @@ function otherDogData() { const breed = pick(Object.keys(BREEDS)); const color =
 
 // ================= WALK =================
 const Walk = {
-  enter() {
-    this.p = activePup(); this.scroll = 0; this.speed = 100; this.len = 3200; this.done = false; this.t = 0; this.found = []; this.money = 0;
+  enter(opts) {
+    opts = opts || {};
+    if (opts.resume && this.saved) { this.resumeWalk(); return; }
+    this.p = activePup();
+    this.route = opts.route || { pts: [{ x: 72, y: 318 }, { x: 262, y: 196 }, { x: 72, y: 318 }], len: 460, stops: [] };
+    this.len = clamp(Math.round(this.route.len * 5), 1400, 7000);
+    this.scroll = 0; this.speed = 100; this.done = false; this.t = 0; this.found = []; this.money = 0; this.visited = []; this.suspended = false; this.saved = null;
+    this.rain = G.weather === 'rain';
     this.p.x = 190; this.p.y = 330; this.p.facing = 1; this.p.pose = 'walk'; this.p.setState('held'); this.p.hidden = false; this.p.carrying = null;
     this.event = null; this.events = [];
-    const kinds = ['present', 'present', 'present', 'poop', 'otherdog', 'hydrant', 'trash', 'otherdog', 'present', 'poop'];
-    const n = 7 + Math.floor(Math.random() * 3);
-    const chosen = kinds.sort(() => Math.random() - 0.5).slice(0, n);
-    if (this.p.d.hunger > 50 && !chosen.includes('poop')) chosen.push('poop');
-    chosen.forEach((k, i) => this.events.push({ kind: k, wx: 500 + i * ((this.len - 800) / n) + rand(-60, 60), state: 'pending', data: {} }));
+    if (G.save.walkDay !== todayKey()) { G.save.walkDay = todayKey(); G.save.walksToday = 0; }
+    G.save.walksToday++;
+    // stops from the drawn route
+    for (const s of this.route.stops) this.events.push({ kind: 'stop', stop: s.kind, wx: Math.round(s.frac * this.len), state: 'pending', data: {} });
+    // random events, spaced out and kept away from stops
+    const n = Math.max(3, Math.round(this.len / 420));
+    const pool = this.rain ? ['present', 'present', 'present', 'poop', 'hydrant', 'trash', 'present', 'poop', 'otherdog', 'present'] : ['present', 'present', 'present', 'poop', 'otherdog', 'hydrant', 'trash', 'otherdog', 'present', 'poop', 'otherdog', 'present'];
+    const chosen = []; while (chosen.length < n) chosen.push(pick(pool));
+    if (this.p.d.hunger > 50 && !chosen.includes('poop')) chosen[0] = 'poop';
+    chosen.forEach((k, i) => {
+      let wx = 450 + i * ((this.len - 900) / n) + rand(-60, 60);
+      for (const st of this.events) if (st.kind === 'stop' && Math.abs(st.wx - wx) < 170) wx = st.wx + 190;
+      this.events.push({ kind: k, wx, state: 'pending', data: {} });
+    });
     this.events.sort((a, b) => a.wx - b.wx);
-    this.bagT = 0; this.tod = timeOfDay(); this.msg = `Walking with ${this.p.d.name}. Tap presents, clean up poop, pull the leash near trash!`;
-    say(this.msg, 6000); this.other = null;
+    this.bagT = 0; this.tod = timeOfDay();
+    say(`Walking with ${this.p.d.name}.${this.rain ? ' Mind the puddles!' : ''} Tap presents, bag poop and pull away from trash.`, 6000); this.other = null;
   },
-  exit() { this.p.setState('idle', 1); this.p.pose = 'stand'; this.p.x = 256; this.p.y = 340; this.p.hidden = false; },
+  suspend() {
+    this.saved = { scroll: this.scroll, events: this.events, found: this.found, money: this.money, t: this.t, visited: this.visited, route: this.route, len: this.len, rain: this.rain, tod: this.tod };
+    this.suspended = true; this.event = null; this.other = null;
+  },
+  resumeWalk() {
+    Object.assign(this, this.saved); this.saved = null; this.suspended = false; this.event = null; this.other = null; this.done = false;
+    this.p = activePup(); this.p.x = 190; this.p.y = 330; this.p.facing = 1; this.p.pose = 'walk'; this.p.setState('held'); this.p.hidden = false; this.p.carrying = null;
+    say('Back on the walk!', 3000);
+  },
+  exit() { if (this.suspended) return; this.p.setState('idle', 1); this.p.pose = 'stand'; this.p.x = 256; this.p.y = 340; this.p.hidden = false; },
   update(dt) {
     this.t += dt; const p = this.p; p.tick(dt);
     const ev = this.event;
     if (!ev && !this.done) {
       this.scroll += this.speed * dt; p.pose = 'walk'; p.walkPhase += dt * 11; p.mouth = 'pant';
-      // next event
       const next = this.events.find(e => e.state === 'pending');
       if (next && next.wx - this.scroll < p.x + 40) this.startEvent(next);
       if (this.scroll >= this.len) this.finish();
@@ -61,7 +84,7 @@ const Walk = {
       ev.t += dt; this.updateEvent(ev, dt);
     }
     if (this.other) { const o = this.other; o.tick(dt); if (o.state === 'leaving') { o.x -= 120 * dt; o.pose = 'walk'; o.walkPhase += dt * 11; if (o.x < -80) this.other = null; } else if (o.state === 'approach') { if (o.x > p.x + 150) { o.x -= 110 * dt; o.pose = 'walk'; o.walkPhase += dt * 11; } else o.pose = 'stand'; } }
-    updateParticles(dt);
+    updateParticles(dt); G.flash = Math.max(0, G.flash - dt * 3);
   },
   startEvent(ev) {
     ev.state = 'active'; ev.t = 0; this.event = ev; const p = this.p;
@@ -72,11 +95,23 @@ const Walk = {
       case 'otherdog': { ev.prompt = 'Another puppy! Tap it to say hello.'; ev.limit = 5; this.other = new Pup(otherDogData()); this.other.x = W + 60; this.other.y = 330; this.other.facing = -1; this.other.state = 'approach'; break; }
       case 'hydrant': ev.prompt = `${p.d.name} is sniffing a hydrant.`; ev.limit = 1.8; ev.x = ev.wx - this.scroll; break;
       case 'trash': ev.prompt = 'Trash! Drag the puppy left to pull it away!'; ev.limit = 3; ev.x = ev.wx - this.scroll; ev.pull = 0; break;
+      case 'stop': {
+        this.visited.push(ev.stop); ev.x = ev.wx - this.scroll; ev.limit = 99;
+        if (ev.stop === 'park') { ev.state = 'done'; say('The park! Time for some disc practice.', 3000); this.suspend(); switchScene('disc', { practice: true, returnTo: 'walk' }); return; }
+        if (ev.stop === 'gym') { ev.state = 'done'; say('The gym! A quick agility run.', 3000); this.suspend(); switchScene('agility', { practice: true, returnTo: 'walk' }); return; }
+        if (ev.stop === 'fountain') { ev.prompt = `${p.d.name} stops for a drink.`; ev.limit = 2.6; p.pose = 'eat'; Sound.splash(); break; }
+        if (ev.stop === 'shop') { ev.prompt = 'The bargain shop!'; this.openBargains(); break; }
+      }
     }
-    say(ev.prompt, 5000);
+    if (ev.prompt) say(ev.prompt, 5000);
   },
   updateEvent(ev, dt) {
     const p = this.p;
+    if (ev.kind === 'stop') {
+      if (ev.stop === 'fountain') { p.pose = 'eat'; p.headPitch = Math.sin(G.t * 9) * 0.08; if (ev.t > ev.limit) { p.headPitch = 0; p.d.thirst = clamp(p.d.thirst + 30, 0, 100); hearts(p.x, 270, 2); this.endEvent('Refreshing! Thirst +30.', 1); } }
+      else if (ev.stop === 'shop') { if (!UI.isOpen()) this.endEvent(null, 0); }
+      return;
+    }
     if (ev.kind === 'poop') {
       if (ev.phase === 'squat') { p.pose = 'sit'; if (ev.t > 1.6) { ev.phase = 'drop'; ev.poopX = p.x - 28; ev.poopY = 334; ev.t = 0; say('Tap the poop to bag it before anyone sees!', 4000); } }
       else if (ev.phase === 'drop') { p.pose = 'stand'; if (ev.t > 5) { this.endEvent('A neighbour frowned at you for not cleaning up.', -3); } }
@@ -97,21 +132,38 @@ const Walk = {
   },
   endEvent(msg, bond) {
     if (msg) say(msg, 3500); if (bond) addBond(this.p.d, bond);
-    if (this.event) this.event.state = 'done'; this.event = null; this.p.pose = 'walk';
+    if (this.event) this.event.state = 'done'; this.event = null; this.p.pose = 'walk'; this.p.headPitch = 0;
+  },
+  openBargains() {
+    const ids = Object.keys(ITEMS).filter(k => ITEMS[k].price > 0 && ITEMS[k].type !== 'room' && isUnlocked(ITEMS[k]) && !(ITEMS[k].type === 'acc' && G.save.ownedAcc.includes(k)) && !((k === 'brush' || k === 'bubbles') && invCount(k)));
+    this.bargains = ids.sort(() => Math.random() - 0.5).slice(0, 4);
+    this.renderBargains();
+  },
+  renderBargains() {
+    const cards = this.bargains.map(id => { const it = ITEMS[id]; const price = Math.round(it.price * 0.5); return card({ icon: id, name: it.name, sub: `<s>${fmtMoney(it.price)}</s> <b>${fmtMoney(price)}</b>`, desc: it.desc, cls: G.save.money >= price ? '' : 'dim', onclick: `Walk.buyBargain('${id}')`, badge: '-50%', badgeCls: 'sale' }); }).join('');
+    UI.show(panelHeader('Bargain shop', true) + `<div class="note">A pop-up stall with half-price goods. Buy what you like, then walk on.</div><div class="grid shop">${cards || '<div class="note">Sold out!</div>'}</div><div class="note"><button class="primary" onclick="UI.hide()">Walk on</button></div>`);
+  },
+  buyBargain(id) {
+    const it = ITEMS[id]; const price = Math.round(it.price * 0.5);
+    if (G.save.money < price) { say('Not enough money.'); Sound.sad(); return; }
+    addMoney(-price); if (it.type === 'acc') G.save.ownedAcc.push(id); else invAdd(id, 1);
+    this.found.push(`${it.name} (bargain)`); this.bargains = this.bargains.filter(b => b !== id); say(`Bought ${it.name} for ${fmtMoney(price)}.`); saveGame(); this.renderBargains();
   },
   finish() {
     this.done = true; const d = this.p.d;
-    d.energy = clamp(d.energy - 25, 0, 100); d.clean = clamp(d.clean - 12, 0, 100); d.happy = clamp(d.happy + 20, 0, 100); d.hunger = clamp(d.hunger - 8, 0, 100); d.thirst = clamp(d.thirst - 12, 0, 100); addBond(d, 4);
+    const lenF = this.len / 3200;
+    d.energy = clamp(d.energy - 25 * lenF, 0, 100); d.clean = clamp(d.clean - (this.rain ? 22 : 12) * lenF, 0, 100); d.happy = clamp(d.happy + 20, 0, 100); d.hunger = clamp(d.hunger - 8 * lenF, 0, 100); d.thirst = clamp(d.thirst - 12 * lenF, 0, 100); addBond(d, 4); addTP(15);
     G.save.totalWalks++;
     const items = this.found.length ? '<ul>' + this.found.map(f => `<li>${f}</li>`).join('') + '</ul>' : '<div class="note">Nothing found this time.</div>';
-    UI.show(panelHeader('Walk complete!') + `<div class="info"><p>${d.name} had a great walk. Happiness +20, Bond +4.</p><h4>Found on the way</h4>${items}${this.money ? `<p>Money found: ${fmtMoney(this.money)}</p>` : ''}
-      <div class="note"><button onclick="switchScene('home')">Head home</button></div></div>`, 'tall');
-    saveGame(); Sound.chime();
+    const stops = this.visited.length ? `<p>Stops: ${this.visited.map(v => MAP_SPOTS[v].name).join(', ')}.</p>` : '';
+    UI.show(panelHeader('Walk complete!') + `<div class="info"><p>${d.name} had a great ${Math.round(this.len / 3.1)} m walk. Happiness +20, Bond +4, 15 trainer points.</p>${stops}<h4>Found on the way</h4>${items}${this.money ? `<p>Money found: ${fmtMoney(this.money)}</p>` : ''}
+      <div class="note"><button class="primary" onclick="switchScene('home')">Head home</button></div></div>`);
+    saveGame(); Sound.chime(); buzz(20); G.afterPanel = () => { if (G.sceneName !== 'home') switchScene('home'); };
   },
   onDown(x, y) {
     const ev = this.event; if (!ev) return; const p = this.p;
     if (ev.kind === 'present' && dist(x, y, ev.x, 318) < 36) { this.openPresent(); return; }
-    if (ev.kind === 'poop' && ev.phase === 'drop' && dist(x, y, ev.poopX, ev.poopY) < 34) { Sound.pop(); sparkle(ev.poopX, ev.poopY, 8); this.endEvent('You bagged it. Good trainer!', 2); return; }
+    if (ev.kind === 'poop' && ev.phase === 'drop' && dist(x, y, ev.poopX, ev.poopY) < 34) { Sound.pop(); sparkle(ev.poopX, ev.poopY, 8); buzz(10); this.endEvent('You bagged it. Good trainer!', 2); return; }
     if (ev.kind === 'otherdog' && this.other && this.other.hit(x, y)) {
       const o = this.other; o.tailWag = 10; p.tailWag = 10; hearts((o.x + p.x) / 2, 280, 4); Sound.doubleBark(o.size);
       const friendly = Math.random() < 0.8;
@@ -125,43 +177,52 @@ const Walk = {
   onMove(x, y) { const ev = this.event; if (ev && ev.kind === 'trash' && this.dragStart && G.pointer.down) { if (x < this.dragStart.x - 6) { ev.pull += (this.dragStart.x - x) / 140; this.dragStart.x = x; } } },
   onUp() { this.dragStart = null; },
   openPresent() {
-    const ev = this.event; const p = this.p; Sound.coin(); sparkle(ev.x, 300, 14);
+    const ev = this.event; const p = this.p; Sound.coin(); sparkle(ev.x, 300, 14); buzz(12);
     const r = Math.random(); let msg;
     if (r < 0.3) { const m = pick([20, 30, 50, 80, 120]); addMoney(m); this.money += m; msg = `${fmtMoney(m)}`; }
     else if (r < 0.75) { const it = pick(['dryfood', 'dryfood', 'milk', 'jerky', 'deluxe', 'ball', 'bone', 'rope', 'frisbee', 'shampoo']); invAdd(it); msg = ITEMS[it].name; }
-    else if (r < 0.9) { const accs = Object.keys(ITEMS).filter(k => ITEMS[k].type === 'acc' && !G.save.ownedAcc.includes(k)); if (accs.length) { const a = pick(accs); G.save.ownedAcc.push(a); msg = ITEMS[a].name + ' (accessory!)'; } else { addMoney(60); this.money += 60; msg = '$60'; } }
+    else if (r < 0.9) { const accs = Object.keys(ITEMS).filter(k => ITEMS[k].type === 'acc' && !G.save.ownedAcc.includes(k) && isUnlocked(ITEMS[k])); if (accs.length) { const a = pick(accs); G.save.ownedAcc.push(a); msg = ITEMS[a].name + ' (accessory!)'; } else { addMoney(60); this.money += 60; msg = '$60'; } }
     else { msg = 'an empty box'; }
     this.found.push(msg); say(`Inside the present: ${msg}!`, 3500); p.d.happy = clamp(p.d.happy + 3, 0, 100);
     p.headPitch = 0; ev.state = 'done'; this.event = null; p.pose = 'walk';
   },
   draw(ctx) {
-    const s = this.scroll; const tod = this.tod;
-    drawSkyGround(ctx, s, tod, 240);
-    // buildings far
-    for (let i = -1; i < 7; i++) { const bx = ((i * 150 - s * 0.4) % (W + 300) + W + 300) % (W + 300) - 150; const bh = 60 + (i * 37) % 50; ctx.fillStyle = tod === 'night' ? '#2a3050' : ['#e8d6c0', '#d6c8b8', '#c9b9a9'][(i + 3) % 3]; ctx.fillRect(bx, 240 - bh, 90, bh); ctx.fillStyle = tod === 'night' ? '#ffe9a0' : '#9ac7e8'; for (let w = 0; w < 6; w++) ctx.fillRect(bx + 10 + (w % 3) * 26, 250 - bh + Math.floor(w / 3) * 24, 14, 14); }
-    // grass strip and sidewalk
-    ctx.fillStyle = tod === 'night' ? '#2f5a2a' : '#6fb25a'; ctx.fillRect(0, 240, W, 40);
+    const s = this.scroll; const tod = this.tod; const rain = this.rain;
+    drawSkyGround(ctx, s, tod, 240, rain);
+    for (let i = -1; i < 7; i++) { const bx = ((i * 150 - s * 0.4) % (W + 300) + W + 300) % (W + 300) - 150; const bh = 60 + (i * 37) % 50; ctx.fillStyle = tod === 'night' ? '#2a3050' : rain ? ['#c9c0b8', '#bcb4ae', '#aea69f'][(i + 3) % 3] : ['#e8d6c0', '#d6c8b8', '#c9b9a9'][(i + 3) % 3]; ctx.fillRect(bx, 240 - bh, 90, bh); ctx.fillStyle = tod === 'night' ? '#ffe9a0' : '#9ac7e8'; for (let w = 0; w < 6; w++) ctx.fillRect(bx + 10 + (w % 3) * 26, 250 - bh + Math.floor(w / 3) * 24, 14, 14); ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.fillRect(bx, 240 - bh, 90, 6); }
+    ctx.fillStyle = tod === 'night' ? '#2f5a2a' : rain ? '#5f9a4e' : '#6fb25a'; ctx.fillRect(0, 240, W, 40);
     for (let i = -1; i < 8; i++) drawTree(ctx, ((i * 190 - s * 0.7) % (W + 380) + W + 380) % (W + 380) - 190, 262, 0.9, tod);
-    ctx.fillStyle = tod === 'night' ? '#9a9aa8' : '#d8d2c8'; ctx.fillRect(0, 280, W, 70);
+    // landmark props near stops
+    for (const ev of this.events) {
+      if (ev.kind !== 'stop') continue; const ex = ev.wx - s; if (ex < -160 || ex > W + 160) continue;
+      if (ev.stop === 'park') { ctx.fillStyle = '#8a6a4a'; ctx.fillRect(ex - 30, 250, 60, 6); ctx.fillRect(ex - 26, 256, 5, 18); ctx.fillRect(ex + 21, 256, 5, 18); ctx.fillRect(ex - 30, 242, 60, 5); drawTree(ctx, ex - 70, 262, 1.1, tod); drawTree(ctx, ex + 70, 262, 1.0, tod); }
+      else if (ev.stop === 'gym') { ctx.fillStyle = '#fff'; ctx.fillRect(ex - 24, 236, 5, 40); ctx.fillRect(ex + 20, 236, 5, 40); ctx.fillStyle = '#e0523c'; ctx.fillRect(ex - 26, 246, 52, 6); ctx.fillStyle = '#4f8fd6'; ctx.fillRect(ex + 50, 236, 5, 40); ctx.fillRect(ex + 90, 236, 5, 40); ctx.strokeStyle = '#333'; ctx.lineWidth = 7; ctx.beginPath(); ctx.arc(ex + 72, 254, 14, 0, Math.PI * 2); ctx.stroke(); }
+      else if (ev.stop === 'shop') { roundRect(ctx, ex - 50, 180, 100, 100, 6, '#fff2d6'); ctx.fillStyle = '#e0523c'; for (let k = 0; k < 5; k++) ctx.fillRect(ex - 54 + k * 22, 176, 11, 16); ctx.fillStyle = '#fff'; for (let k = 0; k < 5; k++) ctx.fillRect(ex - 43 + k * 22, 176, 11, 16); roundRect(ctx, ex - 36, 206, 30, 30, 3, '#8fcdf2'); roundRect(ctx, ex + 8, 206, 28, 74, 3, '#6a4a2a'); outlinedText(ctx, 'SHOP', ex, 200, 13, '#3b2e25'); }
+      else if (ev.stop === 'fountain') { ctx.fillStyle = '#b8c4cc'; ellipsePath(ctx, ex, 276, 46, 12); ctx.fill(); ctx.fillStyle = '#8fd0ff'; ellipsePath(ctx, ex, 274, 38, 8); ctx.fill(); ctx.fillStyle = '#b8c4cc'; ctx.fillRect(ex - 5, 232, 10, 40); ellipsePath(ctx, ex, 232, 16, 5); ctx.fill(); ctx.strokeStyle = 'rgba(143,208,255,0.9)'; ctx.lineWidth = 3; for (let k = -1; k <= 1; k += 2) { ctx.beginPath(); ctx.moveTo(ex + k * 4, 230); ctx.quadraticCurveTo(ex + k * 26, 220 + Math.sin(G.t * 8) * 3, ex + k * 30, 270); ctx.stroke(); } }
+    }
+    ctx.fillStyle = tod === 'night' ? '#9a9aa8' : rain ? '#b9b3ab' : '#d8d2c8'; ctx.fillRect(0, 280, W, 70);
     ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 2; for (let i = -1; i < 8; i++) { const lx = ((i * 90 - s) % (W + 180) + W + 180) % (W + 180) - 90; ctx.beginPath(); ctx.moveTo(lx, 280); ctx.lineTo(lx, 350); ctx.stroke(); }
+    if (rain) { ctx.fillStyle = 'rgba(120,160,200,0.45)'; for (let i = -1; i < 5; i++) { const px = ((i * 230 + 60 - s) % (W + 460) + W + 460) % (W + 460) - 230; ellipsePath(ctx, px, 338, 34, 6); ctx.fill(); } }
     ctx.fillStyle = tod === 'night' ? '#2e2e38' : '#595966'; ctx.fillRect(0, 350, W, 34);
     ctx.fillStyle = '#f0d060'; for (let i = -1; i < 8; i++) { const lx = ((i * 80 - s * 1.2) % (W + 160) + W + 160) % (W + 160) - 80; ctx.fillRect(lx, 365, 40, 4); }
-    // event props
     for (const ev of this.events) {
       const ex = ev.wx - s; if (ex < -60 || ex > W + 60) continue;
       if (ev.kind === 'present' && ev.state !== 'done') { ev.x = ex; this.drawPresent(ctx, ex, 318, ev.state === 'active'); }
       if (ev.kind === 'hydrant') { ctx.fillStyle = '#d64545'; roundRect(ctx, ex - 8, 296, 16, 36, 4, '#d64545'); roundRect(ctx, ex - 12, 300, 24, 6, 2, '#b83535'); ctx.beginPath(); ctx.arc(ex, 296, 9, Math.PI, 0); ctx.fill(); }
       if (ev.kind === 'trash') { roundRect(ctx, ex - 16, 290, 32, 44, 4, '#6a7a6a'); roundRect(ctx, ex - 19, 286, 38, 8, 3, '#4f5f4f'); if (ev.state !== 'done') { ctx.fillStyle = '#e0e0a0'; ctx.beginPath(); ctx.arc(ex + 4, 292, 6, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#c05050'; ctx.beginPath(); ctx.arc(ex - 6, 290, 5, 0, Math.PI * 2); ctx.fill(); } }
-      if (ev.kind === 'poop' && ev.phase === 'drop' && ev.state === 'active') { const px = ev.poopX, py = ev.poopY; ctx.fillStyle = '#6b4a2a'; ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI * 2); ctx.arc(px - 2, py - 8, 6, 0, Math.PI * 2); ctx.arc(px + 1, py - 13, 4, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,0.9)'; outlinedText(ctx, '💩 tap!', px, py - 24, 13); }
+      if (ev.kind === 'poop' && ev.phase === 'drop' && ev.state === 'active') { const px = ev.poopX, py = ev.poopY; ctx.fillStyle = '#6b4a2a'; ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI * 2); ctx.arc(px - 2, py - 8, 6, 0, Math.PI * 2); ctx.arc(px + 1, py - 13, 4, 0, Math.PI * 2); ctx.fill(); outlinedText(ctx, 'tap to bag!', px, py - 24, 13); }
     }
-    // leash hand
+    // leash hand (with umbrella in rain)
     const p = this.p; const z = p.zones();
     ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(40, 150); ctx.quadraticCurveTo(100, 260, z.head.x - 10, z.head.y + 14); ctx.stroke();
     ctx.fillStyle = '#f1c9a5'; ctx.beginPath(); ctx.arc(40, 150, 14, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#4f8fd6'; ctx.fillRect(0, 150, 46, 60); ctx.beginPath(); ctx.arc(23, 150, 23, Math.PI, 0); ctx.fill();
+    if (rain) { ctx.strokeStyle = '#555'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(60, 150); ctx.lineTo(60, 60); ctx.stroke(); ctx.fillStyle = '#f06a8e'; ctx.beginPath(); ctx.arc(60, 62, 70, Math.PI, 0); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.arc(60, 62, 70, Math.PI * 1.1, Math.PI * 1.4); ctx.lineTo(60, 62); ctx.fill(); }
     if (this.other) this.other.draw(ctx);
     p.draw(ctx, { scale: 1.1, acc: Object.assign({}, p.d.acc, { neck: p.d.acc.neck || 'collar_red' }) });
     drawParticles(ctx);
+    if (rain) { ctx.strokeStyle = 'rgba(200,220,255,0.55)'; ctx.lineWidth = 1.3; for (let i = 0; i < 70; i++) { const x = (i * 53 + 11) % (W + 40) - 20 - ((G.t * 60) % 20), y = ((i * 97) + G.t * 520) % (HH + 40) - 20; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 3, y + 14); ctx.stroke(); } }
     if (this.event && this.event.prompt && !this.done) outlinedText(ctx, this.event.prompt, W / 2, 30, 16);
+    if (G.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${G.flash})`; ctx.fillRect(0, 0, W, HH); }
   },
   drawPresent(ctx, x, y, active) {
     const bob = active ? Math.sin(G.t * 6) * 3 : 0;
@@ -171,28 +232,29 @@ const Walk = {
   },
   drawTop(ctx) {
     topPanelBG(ctx, 'Walk');
-    const p = this.p;
-    ctx.fillStyle = '#5a4634'; font(ctx, 14); ctx.textAlign = 'left';
+    const p = this.p; const prog = clamp(this.scroll / this.len, 0, 1);
+    ctx.fillStyle = '#3b2e25'; font(ctx, 14); ctx.textAlign = 'left';
     ctx.fillText(`${p.d.name} · Energy ${Math.round(p.d.energy)} · Clean ${Math.round(p.d.clean)}`, 18, 56);
-    // route map
-    roundRect(ctx, 18, 70, W - 36, 120, 12, 'rgba(255,255,255,0.8)');
-    ctx.strokeStyle = '#c8b89a'; ctx.lineWidth = 10; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(50, 150); ctx.bezierCurveTo(150, 80, 250, 190, 350, 110); ctx.lineTo(460, 130); ctx.stroke();
-    const prog = clamp(this.scroll / this.len, 0, 1);
-    // position along bezier approximated by t
-    const pt = this.routePoint(prog);
-    ctx.fillStyle = '#e0523c'; ctx.beginPath(); ctx.arc(50, 150, 8, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#2a8a3a'; ctx.beginPath(); ctx.arc(460, 130, 8, 0, Math.PI * 2); ctx.fill();
-    for (const ev of this.events) { const q = this.routePoint(clamp(ev.wx / this.len, 0, 1)); ctx.fillStyle = ev.state === 'done' ? '#bbb' : ev.kind === 'present' ? '#ff7eb6' : ev.kind === 'otherdog' ? '#4f8fd6' : '#c8b89a'; ctx.beginPath(); ctx.arc(q.x, q.y, 5, 0, Math.PI * 2); ctx.fill(); }
-    drawDog(ctx, p.d, { x: pt.x, y: pt.y + 4, scale: 0.35, facing: 1, pose: 'walk', walkPhase: p.walkPhase, t: G.t });
-    font(ctx, 12); ctx.fillStyle = '#8a7a6a'; ctx.textAlign = 'left'; ctx.fillText('Home', 36, 172); ctx.textAlign = 'right'; ctx.fillText('Home', 476, 112);
-    ctx.textAlign = 'left'; ctx.fillStyle = '#5a4634'; font(ctx, 14, true); ctx.fillText(`Progress ${Math.round(prog * 100)}%`, 18, 215);
-    roundRect(ctx, 18, 222, W - 36, 12, 6, '#e8dcc6'); roundRect(ctx, 18, 222, (W - 36) * prog, 12, 6, '#8ad05a');
-    font(ctx, 13); ctx.fillStyle = '#5a4634'; ctx.fillText('Found: ' + (this.found.length ? this.found.join(', ') : 'nothing yet'), 18, 258);
-    wrapText(ctx, 'Tap presents · Tap poop to bag it · Drag left to pull away from trash · Tap other puppies to greet', 18, 280, W - 36, 16);
+    // mini map with the drawn route
+    const mw = 0.42;
+    ctx.save(); ctx.translate(18, 64); roundRect(ctx, 0, 0, W * mw, HH * mw, 8, '#dff0c4'); ctx.beginPath(); ctx.roundRect(0, 0, W * mw, HH * mw, 8); ctx.clip(); ctx.scale(mw, mw);
+    ctx.drawImage(mapBackground(), 0, 0); drawRoute(ctx, this.route.pts, true); drawMapSpots(ctx, this.route, this.visited);
+    const pos = routePointAt(this.route, prog);
+    ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.beginPath(); ctx.ellipse(pos.x, pos.y + 4, 18, 7, 0, 0, Math.PI * 2); ctx.fill();
+    drawDog(ctx, p.d, { x: pos.x, y: pos.y + 4, scale: 0.6, facing: 1, pose: 'walk', walkPhase: p.walkPhase, t: G.t });
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(0,0,0,0.1)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(18, 64, W * mw, HH * mw, 8); ctx.stroke();
+    // right column
+    const rx = 18 + W * mw + 14;
+    ctx.fillStyle = '#3b2e25'; font(ctx, 15, true); ctx.textAlign = 'left'; ctx.fillText(`Progress ${Math.round(prog * 100)}%`, rx, 82);
+    roundRect(ctx, rx, 90, W - rx - 18, 12, 6, '#eadfcb'); roundRect(ctx, rx, 90, (W - rx - 18) * prog, 12, 6, '#5cae5a');
+    font(ctx, 13); ctx.fillStyle = '#5a4634';
+    ctx.fillText(`Route ${Math.round(this.len / 3.1)} m`, rx, 122);
+    const stops = this.route.stops.map(s => (this.visited.includes(s.kind) ? '✓ ' : '• ') + MAP_SPOTS[s.kind].name);
+    wrapText(ctx, 'Stops: ' + (stops.length ? stops.join('  ') : 'none'), rx, 142, W - rx - 18, 16);
+    wrapText(ctx, 'Found: ' + (this.found.length ? this.found.join(', ') : 'nothing yet'), rx, 178, W - rx - 18, 16);
+    wrapText(ctx, 'Tap presents · tap poop to bag it · drag left at trash · tap other puppies to greet', 18, 246, W - 36, 16);
     drawMessageBox(ctx);
-  },
-  routePoint(t) {
-    if (t < 0.8) { const u = t / 0.8; const x = (1 - u) ** 3 * 50 + 3 * (1 - u) ** 2 * u * 150 + 3 * (1 - u) * u * u * 250 + u ** 3 * 350; const y = (1 - u) ** 3 * 150 + 3 * (1 - u) ** 2 * u * 80 + 3 * (1 - u) * u * u * 190 + u ** 3 * 110; return { x, y }; }
-    const u = (t - 0.8) / 0.2; return { x: lerp(350, 460, u), y: lerp(110, 130, u) };
   },
 };
 
@@ -211,9 +273,9 @@ const Bath = {
     updateParticles(dt);
   },
   finish() {
-    const d = this.p.d; d.clean = 100; d.happy = clamp(d.happy + 8, 0, 100); addBond(d, 2); invAdd('shampoo', -1); this.phase = 'done';
-    UI.show(panelHeader('Squeaky clean!') + `<div class="info"><p>${d.name} is sparkling clean and smells great. Happiness +8, Bond +2.</p><div class="note"><button onclick="switchScene('home')">Back to the room</button></div></div>`);
-    sparkle(256, 220, 16); Sound.fanfare(); saveGame();
+    const d = this.p.d; d.clean = 100; d.happy = clamp(d.happy + 8, 0, 100); addBond(d, 2); addTP(5); invAdd('shampoo', -1); this.phase = 'done';
+    UI.show(panelHeader('Squeaky clean!') + `<div class="info"><p>${d.name} is sparkling clean and smells great. Happiness +8, Bond +2.</p><div class="note"><button class="primary" onclick="switchScene('home')">Back to the room</button></div></div>`);
+    sparkle(256, 220, 16); Sound.fanfare(); saveGame(); G.afterPanel = () => { if (G.sceneName !== 'home') switchScene('home'); };
   },
   onDown(x, y) { if (this.phase === 'lather' && dist(x, y, 70, 330) < 40) this.tool = 'sponge'; else if (this.phase === 'rinse' && dist(x, y, 440, 330) < 40) this.tool = 'shower'; else if (this.phase === 'lather') this.tool = 'sponge'; else if (this.phase === 'rinse') this.tool = 'shower'; },
   onMove() { }, onUp() { },
@@ -249,7 +311,7 @@ const Bath = {
     roundRect(ctx, 156, 16, 200, 14, 7, 'rgba(255,255,255,0.8)'); roundRect(ctx, 156, 16, 200 * meter, 14, 7, this.phase === 'lather' ? '#f5d76e' : '#4f8fd6');
     outlinedText(ctx, this.phase === 'lather' ? 'Lather' : this.phase === 'rinse' ? 'Rinse' : 'Shake it off!', W / 2, 52, 16);
   },
-  drawTop(ctx) { topPanelBG(ctx, 'Bath time'); ctx.fillStyle = '#5a4634'; font(ctx, 14); ctx.textAlign = 'left'; ctx.fillText(`${this.p.d.name} · Clean ${Math.round(this.p.d.clean)}% · Shampoo left: ${invCount('shampoo')}`, 18, 56); wrapText(ctx, this.phase === 'lather' ? 'Hold the mouse on your puppy and rub the sponge back and forth until the bubbles meter is full.' : this.phase === 'rinse' ? 'Hold the shower above your puppy so the water falls on it. Rinse until all the suds are gone.' : 'All done!', 18, 84, W - 36, 18); drawDog(ctx, this.p.d, { x: 256, y: 290, scale: 1.2, facing: 1, pose: 'sit', t: G.t, eyes: 'happy', mouth: 'smile', acc: this.p.d.acc, dirt: clamp((60 - this.p.d.clean) / 60, 0, 1) }); drawMessageBox(ctx); },
+  drawTop(ctx) { topPanelBG(ctx, 'Bath time'); ctx.fillStyle = '#3b2e25'; font(ctx, 14); ctx.textAlign = 'left'; ctx.fillText(`${this.p.d.name} · Clean ${Math.round(this.p.d.clean)}% · Shampoo left: ${invCount('shampoo')}`, 18, 56); wrapText(ctx, this.phase === 'lather' ? 'Hold the mouse on your puppy and rub the sponge back and forth until the bubbles meter is full.' : this.phase === 'rinse' ? 'Hold the shower above your puppy so the water falls on it. Rinse until all the suds are gone.' : 'All done!', 18, 84, W - 36, 18); drawDog(ctx, this.p.d, { x: 256, y: 290, scale: 1.2, facing: 1, pose: 'sit', t: G.t, eyes: 'happy', mouth: 'smile', acc: this.p.d.acc, dirt: clamp((60 - this.p.d.clean) / 60, 0, 1) }); drawMessageBox(ctx); },
 };
 
 // ================= Contest helpers =================
@@ -272,27 +334,28 @@ function contestResult(kind, score, label, better) {
   else if (rank <= 3) { d.trophies.push({ kind: { disc: 'Disc', agility: 'Agility', obedience: 'Obedience' }[kind], cls, rank }); Sound.chime(); }
   else Sound.sad();
   d.energy = clamp(d.energy - 15, 0, 100); d.happy = clamp(d.happy + (rank <= 3 ? 10 : 3), 0, 100); addBond(d, rank <= 3 ? 3 : 1); d.thirst = clamp(d.thirst - 10, 0, 100);
-  G.save.trainerPts += prize / 10;
+  addTP(prize / 5);
   const rows = all.map((a, i) => `<tr class="${a.me ? 'me' : ''}"><td>${['🥇', '🥈', '🥉'][i] || (i + 1) + 'th'}</td><td>${a.name}</td><td>${a.breed}</td><td>${better === 'low' ? a.score.toFixed(2) + 's' : a.score + ' ' + label}</td></tr>`).join('');
   UI.show(panelHeader(`${{ disc: 'Disc Competition', agility: 'Agility Trial', obedience: 'Obedience Trial' }[kind]} · ${CONTEST_CLASSES[cls]}`) + `<div class="info"><p><b>${d.name}</b> finished <b>${rank}${['st', 'nd', 'rd'][rank - 1] || 'th'}</b>! ${prize ? 'Prize: ' + fmtMoney(prize) + '.' : 'No prize this time.'} ${note}</p>
-    <table class="rank">${rows}</table><div class="note"><button onclick="switchScene('home')">Back home</button></div></div>`, 'tall');
-  saveGame();
+    <table class="rank">${rows}</table><div class="note"><button class="primary" onclick="switchScene('home')">Back home</button></div></div>`, 'tall');
+  saveGame(); G.afterPanel = () => { if (G.sceneName !== 'home') switchScene('home'); };
 }
 
 // ================= DISC COMPETITION =================
 const Disc = {
-  enter() {
-    this.p = activePup(); this.time = 60; this.score = 0; this.throws = 0; this.state = 'ready'; this.disc = null; this.drag = null; this.over = false; this.lastPts = null;
+  enter(opts) {
+    opts = opts || {}; this.practice = !!opts.practice; this.returnTo = opts.returnTo || 'home';
+    this.p = activePup(); this.time = this.practice ? 30 : 60; this.score = 0; this.throws = 0; this.state = 'ready'; this.disc = null; this.drag = null; this.over = false; this.lastPts = null;
     this.dog = { wx: 18, d: 4, target: null, has: false, jump: 0, jumpV: 0, pose: 'sit', facing: -1, walk: 0 };
     this.p.setState('held'); this.p.hidden = true; this.t = 0; this.intro = 2.5;
-    say('Drag the disc and release to throw. Far zones score more. Mid-air catches score double!', 7000);
+    say(this.practice ? 'Park practice: 30 seconds of free throws. Every catch raises Disc skill.' : 'Drag the disc and release to throw. Far zones score more. Mid-air catches score double!', 7000);
   },
   exit() { this.p.hidden = false; this.p.setState('idle', 1); this.p.pose = 'stand'; this.p.x = 256; this.p.y = 340; },
   proj(wx, d, z = 0) { const k = 1 - d / 115; const y = 352 - d * 2.15; return { x: 256 + wx * (0.9 * k + 0.25) * 4.2, y: y - z * (0.4 + 0.6 * k), s: 0.35 + 0.95 * k }; },
   update(dt) {
     this.t += dt; const p = this.p; p.tick(dt);
     if (this.intro > 0) { this.intro -= dt; return; }
-    if (!this.over) { this.time -= dt; if (this.time <= 0) { this.time = 0; this.over = true; this.state = 'done'; setTimeout(() => contestResult('disc', this.score, 'pts', 'high'), 1200); p.d.discSkill = clamp(p.d.discSkill + 2, 0, 100); } }
+    if (!this.over) { this.time -= dt; if (this.time <= 0) { this.time = 0; this.over = true; this.state = 'done'; p.d.discSkill = clamp(p.d.discSkill + (this.practice ? 3 : 2), 0, 100); if (this.practice) { const ret = this.returnTo; addTP(5); say(`Practice over! ${p.d.name} scored ${this.score}. Disc skill is now ${Math.round(p.d.discSkill)}.`, 5000); setTimeout(() => switchScene(ret, { resume: true }), 1500); } else setTimeout(() => contestResult('disc', this.score, 'pts', 'high'), 1200); } }
     const dog = this.dog; const skill = p.d.discSkill;
     const speed = 40 + skill * 0.4;
     if (dog.jump > 0 || dog.jumpV) { dog.jumpV -= 160 * dt; dog.jump += dog.jumpV * dt; if (dog.jump <= 0) { dog.jump = 0; dog.jumpV = 0; } }
@@ -379,13 +442,13 @@ const Disc = {
     if (this.over) outlinedText(ctx, 'Time up!', 256, 200, 36);
   },
   drawTop(ctx) {
-    topPanelBG(ctx, `Disc Competition · ${CONTEST_CLASSES[this.p.d.classes.disc]} class`);
-    ctx.fillStyle = '#5a4634'; font(ctx, 14); ctx.textAlign = 'left';
+    topPanelBG(ctx, this.practice ? 'Park · disc practice' : `Disc Competition · ${CONTEST_CLASSES[this.p.d.classes.disc]} class`);
+    ctx.fillStyle = '#3b2e25'; font(ctx, 14); ctx.textAlign = 'left';
     ctx.fillText(`${this.p.d.name} · Disc skill ${Math.round(this.p.d.discSkill)}`, 18, 56);
     roundRect(ctx, 18, 70, W - 36, 150, 12, 'rgba(255,255,255,0.8)');
     font(ctx, 46, true); ctx.fillStyle = '#e05080'; ctx.textAlign = 'center'; ctx.fillText(this.score + ' pts', 150, 150);
     font(ctx, 13); ctx.fillStyle = '#5a4634'; ctx.textAlign = 'left';
-    wrapText(ctx, 'Rules: 60 seconds. Drag the disc upward and let go to throw. Longer drags fly farther. Catch in zone 1/2/3 for 1/2/3 points. A mid-air catch doubles the points. Landing outside the lines scores nothing.', 280, 92, 200, 17);
+    wrapText(ctx, (this.practice ? 'Practice: 30 seconds, no judges. ' : 'Rules: 60 seconds. ') + 'Drag the disc upward and let go to throw. Longer drags fly farther. Catch in zone 1/2/3 for 1/2/3 points. A mid-air catch doubles the points. Landing outside the lines scores nothing.', 280, 92, 200, 17);
     if (this.lastPts !== null) { font(ctx, 16, true); ctx.fillStyle = '#5a4634'; ctx.textAlign = 'center'; ctx.fillText(this.lastPts ? `Last throw: +${this.lastPts}` : 'Last throw: miss', 150, 190); }
     drawDog(ctx, this.p.d, { x: 150, y: 300, scale: 0.9, facing: 1, pose: 'sit', t: G.t, eyes: 'open', mouth: 'pant', acc: this.p.d.acc });
     drawMessageBox(ctx);
@@ -394,11 +457,12 @@ const Disc = {
 
 // ================= AGILITY TRIAL =================
 const Agility = {
-  enter() {
+  enter(opts) {
+    opts = opts || {}; this.practice = !!opts.practice; this.returnTo = opts.returnTo || 'home';
     this.p = activePup(); this.p.setState('held'); this.p.hidden = true;
     this.x = 0; this.time = 0; this.faults = 0; this.running = false; this.intro = 2.5; this.finished = false; this.jump = 0; this.jumpV = 0; this.crouch = 0; this.walk = 0; this.flash = null; this.msgT = 0;
     this.speed = 150 + this.p.d.agiSkill * 1.4;
-    const kinds = ['hurdle', 'tire', 'tunnel', 'hurdle', 'seesaw', 'tire', 'hurdle', 'tunnel', 'hurdle'];
+    const kinds = this.practice ? ['hurdle', 'tunnel', 'tire', 'seesaw', 'hurdle'] : ['hurdle', 'tire', 'tunnel', 'hurdle', 'seesaw', 'tire', 'hurdle', 'tunnel', 'hurdle'];
     this.obs = kinds.map((k, i) => ({ kind: k, wx: 520 + i * 420 + rand(-40, 40), done: false, result: null }));
     this.finishX = this.obs[this.obs.length - 1].wx + 500;
     say('Press SPACE or tap the screen at the right moment: jump hurdles and tires, duck into tunnels, balance on the seesaw!', 8000);
@@ -422,8 +486,10 @@ const Agility = {
     }
     if (this.x + this.dogX > this.finishX && !this.finished) {
       this.finished = true; this.running = false; const total = this.time + this.faults * 3;
-      this.p.d.agiSkill = clamp(this.p.d.agiSkill + 3, 0, 100);
-      Sound.chime(); setTimeout(() => contestResult('agility', Math.round(total * 100) / 100, 's', 'low'), 1200);
+      this.p.d.agiSkill = clamp(this.p.d.agiSkill + (this.practice ? 4 : 3), 0, 100);
+      Sound.chime();
+      if (this.practice) { const ret = this.returnTo; addTP(5); say(`Gym run done in ${total.toFixed(1)}s with ${this.faults} fault${this.faults === 1 ? '' : 's'}. Agility skill is now ${Math.round(this.p.d.agiSkill)}.`, 5000); setTimeout(() => switchScene(ret, { resume: true }), 1500); }
+      else setTimeout(() => contestResult('agility', Math.round(total * 100) / 100, 's', 'low'), 1200);
     }
     updateParticles(dt);
   },
@@ -473,8 +539,8 @@ const Agility = {
     if (this.finished) outlinedText(ctx, 'Finished!', 256, 180, 40);
   },
   drawTop(ctx) {
-    topPanelBG(ctx, `Agility Trial · ${CONTEST_CLASSES[this.p.d.classes.agility]} class`);
-    ctx.fillStyle = '#5a4634'; font(ctx, 14); ctx.textAlign = 'left';
+    topPanelBG(ctx, this.practice ? 'Gym · agility practice' : `Agility Trial · ${CONTEST_CLASSES[this.p.d.classes.agility]} class`);
+    ctx.fillStyle = '#3b2e25'; font(ctx, 14); ctx.textAlign = 'left';
     ctx.fillText(`${this.p.d.name} · Agility skill ${Math.round(this.p.d.agiSkill)}`, 18, 56);
     roundRect(ctx, 18, 70, W - 36, 150, 12, 'rgba(255,255,255,0.8)');
     font(ctx, 13); ctx.fillStyle = '#5a4634';
@@ -490,7 +556,7 @@ const Agility = {
 
 // ================= OBEDIENCE TRIAL =================
 const Obedience = {
-  enter() {
+  enter(opts) {
     this.p = activePup(); this.p.setState('held'); this.p.hidden = true; this.pose = 'sit'; this.facing = 1;
     const known = Object.keys(this.p.d.tricks);
     this.rounds = []; for (let i = 0; i < 5; i++) this.rounds.push(pick(known));
@@ -576,7 +642,7 @@ const Obedience = {
   },
   drawTop(ctx) {
     topPanelBG(ctx, `Obedience Trial · ${CONTEST_CLASSES[this.p.d.classes.obedience]} class`);
-    ctx.fillStyle = '#5a4634'; font(ctx, 14); ctx.textAlign = 'left'; ctx.fillText(`${this.p.d.name} · ${Object.keys(this.p.d.tricks).length} tricks known`, 18, 56);
+    ctx.fillStyle = '#3b2e25'; font(ctx, 14); ctx.textAlign = 'left'; ctx.fillText(`${this.p.d.name} · ${Object.keys(this.p.d.tricks).length} tricks known`, 18, 56);
     roundRect(ctx, 18, 70, W - 36, 170, 12, 'rgba(255,255,255,0.8)');
     font(ctx, 13); ctx.fillStyle = '#5a4634';
     wrapText(ctx, 'The judge names a trick. Give your own command word (the one you taught) using the command bar below the touch screen. Fast correct answers: 20 pts. Slower: 15 or 10. Wrong trick or too slow: 0. During "Stay", do nothing for 6 seconds.', 30, 92, W - 60, 17);
